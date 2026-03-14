@@ -17,6 +17,7 @@ class RFIDAccessControlCard extends HTMLElement {
     this._unlocked = false;
     this._lockTimeout = null;
     this._lockedRendered = false;
+    this._editingActionName = null;
   }
 
   connectedCallback() {
@@ -244,6 +245,7 @@ class RFIDAccessControlCard extends HTMLElement {
     this.editingUser = user;
     this.currentView = 'edit';
     this.entityFilter = '';
+    this._editingActionName = null;
     this.render();
   }
 
@@ -253,6 +255,7 @@ class RFIDAccessControlCard extends HTMLElement {
     this.wizardData = {};
     this.wizardStep = 1;
     this.entityFilter = '';
+    this._editingActionName = null;
     this._stopRfidListen();
     this.render();
   }
@@ -909,8 +912,8 @@ class RFIDAccessControlCard extends HTMLElement {
 
       <div class="form-row">
         <div class="form-group">
-          <label>PIN</label>
-          <input type="password" id="edit-pin" value="${user.pin || ''}" placeholder="Lascia vuoto per non cambiare" />
+          <label>PIN <span style="font-size:11px; color: var(--secondary-text-color); font-weight:normal;">(visibile per modifica)</span></label>
+          <input type="text" id="edit-pin" value="${user.pin || ''}" placeholder="Lascia vuoto per non cambiare" autocomplete="off" style="font-family: monospace; letter-spacing: 2px;" />
         </div>
         <div class="form-group">
           <label>RFID</label>
@@ -927,10 +930,14 @@ class RFIDAccessControlCard extends HTMLElement {
 
       <p class="section-title">Azioni Utente (${user.actions ? user.actions.length : 0})</p>
 
-      ${user.actions && user.actions.length > 0 ? user.actions.map((action, idx) => `
-        <div class="action-item">
+      ${user.actions && user.actions.length > 0 ? user.actions.map((action, idx) => {
+        const aName = action.action_name || action.name || '';
+        const isBeingEdited = this._editingActionName === aName;
+        return `
+        <div class="action-item" style="${isBeingEdited ? 'border: 2px solid var(--primary-color, #03a9f4); border-radius:8px;' : ''}">
           <div>
-            <strong>${action.action_name || action.name || 'Azione'}</strong>
+            ${isBeingEdited ? `<span style="font-size:11px; color: var(--primary-color, #03a9f4); font-weight:bold;">✎ In modifica...</span><br>` : ''}
+            <strong>#${idx + 1} — ${aName || 'Azione'}</strong>
             <p>${action.service} → ${action.entity_id}</p>
             <p style="font-size:11px; color: var(--secondary-text-color);">
               Trigger: ${this._keypadActionLabel(action.keypad_action || 'any')}
@@ -940,19 +947,26 @@ class RFIDAccessControlCard extends HTMLElement {
           </div>
           <div class="btn-group">
             <button class="btn btn-primary btn-small btn-edit-user-action"
-              data-action-name="${action.action_name || action.name || ''}"
+              data-action-name="${aName}"
               data-entity-id="${action.entity_id || ''}"
               data-service="${action.service || ''}"
               data-keypad-action="${action.keypad_action || 'any'}"
               data-delay-before="${action.delay_before_seconds || 0}"
-              data-delay-after="${action.delay_after_seconds || 0}">Modifica</button>
-            <button class="btn btn-danger btn-small btn-remove-user-action" data-action-name="${action.action_name || action.name || ''}">Rimuovi</button>
+              data-delay-after="${action.delay_after_seconds || 0}"
+              ${isBeingEdited ? 'disabled style="opacity:0.5;"' : ''}>Modifica</button>
+            <button class="btn btn-danger btn-small btn-remove-user-action"
+              data-action-name="${aName}"
+              ${isBeingEdited ? 'disabled style="opacity:0.5;"' : ''}>Rimuovi</button>
           </div>
-        </div>
-      `).join('') : '<p style="color: var(--secondary-text-color);">Nessuna azione configurata</p>'}
+        </div>`;
+      }).join('') : '<p style="color: var(--secondary-text-color);">Nessuna azione configurata</p>'}
 
       <hr class="divider" />
-      <p class="section-title">Aggiungi Nuova Azione</p>
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+        <p class="section-title" style="margin:0;">${this._editingActionName ? 'Modifica Azione' : 'Aggiungi Nuova Azione'}</p>
+        ${this._editingActionName ? `<button class="btn btn-secondary btn-small" id="btn-cancel-edit-action">Annulla modifica</button>` : ''}
+      </div>
+      ${this._editingActionName ? `<p style="font-size:12px; color: var(--secondary-text-color); margin:4px 0 8px;">Stai modificando: <strong>${this._editingActionName}</strong> — cambia i valori e clicca "Salva Modifica Azione"</p>` : ''}
 
       <div class="form-group">
         <label>Cerca Entita</label>
@@ -1005,7 +1019,9 @@ class RFIDAccessControlCard extends HTMLElement {
         </select>
       </div>
 
-      <button class="btn btn-success btn-small" id="btn-add-edit-action" style="display:none;">+ Aggiungi Azione</button>
+      <button class="btn btn-success btn-small" id="btn-add-edit-action" style="display:none;">
+        ${this._editingActionName ? 'Salva Modifica Azione' : '+ Aggiungi Azione'}
+      </button>
     `;
   }
 
@@ -1096,11 +1112,11 @@ class RFIDAccessControlCard extends HTMLElement {
     }
 
     $$('.btn-edit-user').forEach(btn => {
-      btn.addEventListener('click', (e) => this._editUser(e.target.dataset.userId));
+      btn.addEventListener('click', () => this._editUser(btn.dataset.userId));
     });
 
     $$('.btn-delete-user').forEach(btn => {
-      btn.addEventListener('click', (e) => this._deleteUser(e.target.dataset.userId));
+      btn.addEventListener('click', () => this._deleteUser(btn.dataset.userId));
     });
 
     // Back to list
@@ -1328,25 +1344,41 @@ class RFIDAccessControlCard extends HTMLElement {
       });
     }
 
-    // Edit existing action (modifica)
+    // Cancel action edit mode
+    if ($('btn-cancel-edit-action')) {
+      $('btn-cancel-edit-action').addEventListener('click', () => {
+        this._editingActionName = null;
+        this.entityFilter = '';
+        this.render();
+      });
+    }
+
+    // Edit existing action (modifica) — prefill only, remove when saving
     $$('.btn-edit-user-action').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
+      btn.addEventListener('click', (e) => {
         if (!this.editingUser) return;
-        const actionName = e.target.dataset.actionName;
-        const entityId = e.target.dataset.entityId;
-        const service = e.target.dataset.service;
-        const keypadAction = e.target.dataset.keypadAction || 'any';
-        const delayBefore = parseInt(e.target.dataset.delayBefore || '0', 10) || 0;
-        const delayAfter = parseInt(e.target.dataset.delayAfter || '0', 10) || 0;
-        await this._removeActionFromUser(this.editingUser.user_id, actionName);
+        // Use btn.dataset (not e.target) to avoid child element click issues
+        const actionName = btn.dataset.actionName;
+        const entityId = btn.dataset.entityId;
+        const service = btn.dataset.service;
+        const keypadAction = btn.dataset.keypadAction || 'any';
+        const delayBefore = parseInt(btn.dataset.delayBefore || '0', 10) || 0;
+        const delayAfter = parseInt(btn.dataset.delayAfter || '0', 10) || 0;
+        // Save which action we're editing (will be removed only when user saves)
+        this._editingActionName = actionName;
         this._prefillEditActionForm({ entity_id: entityId, service, action_name: actionName, keypad_action: keypadAction, delay_before_seconds: delayBefore, delay_after_seconds: delayAfter });
+        // Scroll down to the form
+        setTimeout(() => {
+          this.shadowRoot?.getElementById('edit-entity-filter')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
       });
     });
 
-    // Add action to existing user
+    // Add / update action for existing user
     if ($('btn-add-edit-action')) {
       $('btn-add-edit-action').addEventListener('click', async () => {
         if (!this.editingUser) return;
+        // Read all values from form BEFORE any async call (re-render would wipe the DOM)
         const entityId = $('edit-entity')?.value;
         const service = $('edit-service')?.value;
         const actionName = $('edit-action-name')?.value?.trim();
@@ -1357,6 +1389,14 @@ class RFIDAccessControlCard extends HTMLElement {
         if (!entityId || !service) {
           this._showStatus('Seleziona entita e servizio', 'error');
           return;
+        }
+
+        // If we're editing an existing action, remove it first (with captured name)
+        const oldActionName = this._editingActionName || null;
+        this._editingActionName = null;
+
+        if (oldActionName) {
+          await this._removeActionFromUser(this.editingUser.user_id, oldActionName);
         }
 
         await this._addActionToUser(this.editingUser.user_id, {
@@ -1370,11 +1410,11 @@ class RFIDAccessControlCard extends HTMLElement {
       });
     }
 
-    // Remove action from user
+    // Remove action from user — use btn.dataset (not e.target)
     $$('.btn-remove-user-action').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
+      btn.addEventListener('click', async () => {
         if (!this.editingUser) return;
-        const actionName = e.target.dataset.actionName;
+        const actionName = btn.dataset.actionName;
         await this._removeActionFromUser(this.editingUser.user_id, actionName);
       });
     });
