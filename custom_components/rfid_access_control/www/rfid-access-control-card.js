@@ -1312,7 +1312,13 @@ class RFIDAccessControlCard extends HTMLElement {
     if ($('edit-entity-filter')) {
       $('edit-entity-filter').addEventListener('input', (e) => {
         this.entityFilter = e.target.value;
-        this.render();
+        // Aggiorna solo il dropdown — NON fare render() che fa perdere il focus
+        const entitySelect = $('edit-entity');
+        if (entitySelect) {
+          const filtered = this._getFilteredEntities().slice(0, 50);
+          entitySelect.innerHTML = '<option value="">-- Scegli entita --</option>' +
+            filtered.map(eid => `<option value="${eid}">${this._getEntityFriendlyName(eid)} (${eid})</option>`).join('');
+        }
       });
     }
 
