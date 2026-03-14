@@ -58,7 +58,6 @@ class RFIDAccessControlUsersSensor(SensorEntity):
             user_dict = user.to_dict()
             has_pin = bool(user_dict.get("pin"))
             has_rfid = bool(user_dict.get("rfid"))
-            user_dict.pop("pin", None)
             user_dict["has_pin"] = has_pin
             user_dict["has_rfid"] = has_rfid
             actions = []
